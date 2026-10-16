@@ -1,0 +1,28 @@
+# Local environments and Python caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Camera evidence, runtime output, and temporary files
+event_data/
+counts.json
+*_counts.json
+*.log
+tmp*/
+backup*/
+*.part
+
+# Local credentials and editor settings
+.env
+.env.*
+!.env.example
+.ssh/
+.aws/
+.codex/
+.agents/
+.vscode/
+.idea/
+
+# Model weights are intentionally included for this demo:
+# yolov8n.pt, yolo26n.pt, models/best.pt
