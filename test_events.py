@@ -49,8 +49,8 @@ class EventTests(unittest.TestCase):
         import detect_web
         def check(app, **kwargs):
             c = app.test_client()
-            self.assertIn(b'Detection & target lock', c.get('/').data)
-            self.assertEqual(c.get('/api/target').json['status'], 'UNLOCKED')
+            self.assertIn(b'Auto-follow demo', c.get('/').data)
+            self.assertEqual(c.get('/api/target').json['status'], 'WAITING FOR CAMERA')
             self.assertTrue(c.get('/api/target').json['stale'])
             self.assertTrue(c.get('/health').json['stale'])
             self.assertIn('OFF', c.get('/health').json['capabilities'])
