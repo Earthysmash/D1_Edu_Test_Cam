@@ -7,6 +7,7 @@ import threading
 import time
 from pathlib import Path
 from events import Events, observations, register
+from target_lock import TargetLock, register_target
 
 
 class Counts:
@@ -121,6 +122,7 @@ def main():
                         + "\nNo possession / identity inference. Validate this model on your camera.")
     events = Events(args.event_dir, args.event_frames, args.event_seconds)
     frames, output = Latest(), Latest()
+    target = TargetLock()
     stop = threading.Event()
     status_lock = threading.Lock()
     state = {"camera": "connecting", "detector": "starting", "capabilities": capabilities,
@@ -182,6 +184,7 @@ def main():
                 annotated = frame.copy()
                 count = 0
                 totals = {}
+                people = []
                 if model is not None:
                     result = model.track(frame, persist=True, tracker="botsort.yaml",
                                          imgsz=args.imgsz, conf=args.conf,
@@ -192,6 +195,21 @@ def main():
                     classes = boxes.cls.cpu().tolist() if boxes is not None else []
                     ids = boxes.id.cpu().tolist() if boxes is not None and boxes.id is not None else None
                     totals = counts.add(connection, classes, ids, result.names)
+                    if ids is not None:
+                        for tid, cls, box, confidence in zip(ids, classes,
+                                boxes.xyxy.cpu().tolist(), boxes.conf.cpu().tolist()):
+                            if str(result.names[int(cls)]).lower() == 'person':
+                                people.append(dict(track_id=int(tid),
+                                    box=[int(v) for v in box], confidence=round(confidence, 3)))
+                target.observe(connection, people)
+                selection = target.snapshot()
+                if selection['status'] == 'LOCKED':
+                    selected = selection['target']
+                    x1, y1, x2, y2 = selected['box']
+                    cv2.rectangle(annotated, (x1, y1), (x2, y2), (255, 220, 0), 4)
+                    cv2.putText(annotated, f"LOCKED #{selected['track_id']}",
+                                (x1, max(20, y1-12)), cv2.FONT_HERSHEY_SIMPLEX,
+                                .7, (255, 220, 0), 2)
                 candidates = []
                 if event_model is not None:
                     event_result = event_model.track(frame, persist=True, tracker="botsort.yaml",
@@ -230,6 +248,7 @@ def main():
 
     app = Flask(__name__)
     register(app, events)
+    register_target(app, target)
 
     @app.get("/")
     def index():

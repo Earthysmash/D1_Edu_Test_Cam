@@ -27,6 +27,34 @@ python live_demo.py
 Open http://127.0.0.1:8080. Stop an older demo with Ctrl+C before restarting.
 The camera port and `/test` RTSP path must match the robot's camera service.
 
+## Manual target-lock dashboard
+
+The dashboard shows live annotated detections, object counts, existing event review,
+and a manual person selector. This is a stationary perception demo: it sends no
+robot motion commands and has no automatic following, patrol, or reacquisition.
+
+1. Start the camera demo as above and wait for a tracked person to appear.
+2. Press **Lock target** on that person's track card. The camera highlights the
+   selected person in cyan and the dashboard shows **LOCKED** with confidence
+   and image bounding-box coordinates.
+3. If the track disappears, camera data becomes stale (over two seconds), or the
+   camera reconnects, the state becomes **TARGET LOST**. It stays lost even if
+   the same track ID returns. Select a visible person manually to lock again.
+4. Press **Unlock / Reset** to clear the selection.
+
+Other object detections and event review remain visible while a target is locked.
+The last observed box is in image pixels, not a map position or distance estimate.
+Track IDs are temporary and can switch between people during overlap; this demo
+does not verify identity. Only people with assigned tracker IDs can be selected.
+The selection is shared by all browser tabs connected to this local server.
+
+For a PC webcam smoke test without the robot: `python live_demo.py --source 0`.
+Camera-only preview mode cannot lock people because detection is disabled.
+
+Run regression checks with `python -m unittest test_events test_target_lock -v`.
+On the real camera, check selection with two people, disappearance, manual reset,
+and camera disconnect/reconnect before presenting the demo.
+
 ## Models
 
 - `yolov8n.pt`: general model, filtered to person, chair, and dining table.
