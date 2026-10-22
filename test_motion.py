@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 from flask import Flask
 from auto_target import AutoTarget, register_target
 from motion_status import MotionStatus, register_motion
-from robot_follow import Controller, command_for, main, ZERO
+from robot_follow import Controller, command_for, decision_reason, main, ZERO
 
 
 def detection(**changes):
@@ -14,6 +14,13 @@ def detection(**changes):
 
 
 class MotionTests(unittest.TestCase):
+    def test_diagnostic_reasons(self):
+        self.assertIn('PAUSED', decision_reason(detection(motion_requested=False)))
+        self.assertIn('older than', decision_reason(detection(frame_age_seconds=2)))
+        self.assertIn('no person', decision_reason(detection(target=None)))
+        self.assertIn('65%', decision_reason(detection(suggestion='HOLD')))
+        self.assertIn('FORWARD', decision_reason(detection()))
+
     def test_velocity_mapping(self):
         for action, expected in [('FORWARD', (.15,0,0)), ('TURN LEFT', (0,0,.2)),
                                  ('TURN RIGHT', (0,0,-.2)), ('HOLD', ZERO), ('STOP', ZERO)]:

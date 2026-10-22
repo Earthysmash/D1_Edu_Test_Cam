@@ -13,6 +13,21 @@ from urllib.request import Request, urlopen
 ZERO = (0.0, 0.0, 0.0)
 
 
+def decision_reason(data, elapsed=0):
+    if not data.get('motion_requested'):
+        return 'PAUSED: dashboard permission is off'
+    age = data.get('frame_age_seconds')
+    if (type(age) not in (int, float) or not math.isfinite(age) or age < 0):
+        return 'STOP: no valid frame timestamp'
+    if data.get('stale', True) or age + elapsed > 1:
+        return 'STOP: camera/inference data older than 1 second'
+    if not data.get('target'):
+        return 'STOP: no person detected'
+    if data.get('suggestion') == 'HOLD':
+        return 'HOLD: person box >=65% of image height (image heuristic, not measured distance)'
+    return 'TARGET: ' + str(data.get('suggestion', 'UNKNOWN'))
+
+
 def command_for(data, elapsed=0, speed=.15, turn=.2):
     """Reject missing, stale, or disabled detections; never reverse or strafe."""
     age = data.get('frame_age_seconds')
@@ -33,10 +48,13 @@ def checked_move(app, command):
 class Controller:
     def __init__(self, app, speed=.15, turn=.2):
         self.app, self.speed, self.turn = app, speed, turn
+        self.mode = None
 
     def step(self, data, elapsed=0):
-        if self.app.getCurrentCtrlmode() not in (1, 3):
-            raise RuntimeError('Robot is not standing/moving. Use remote to stand and select SDK control.')
+        self.mode = self.app.getCurrentCtrlmode()
+        if self.mode not in (1, 3):
+            raise RuntimeError(f'Robot mode={self.mode!r}, expected standing=1 or moving=3. '
+                               'Use remote to stand and select SDK control.')
         command = command_for(data, elapsed, self.speed, self.turn)
         checked_move(self.app, command)
         return command
@@ -112,12 +130,18 @@ def main():
         exchange(args.dashboard, '/api/motion', dict(action='heartbeat', state='READY', command=list(ZERO)))
         exchange(args.dashboard, '/api/motion', dict(action='start'))
         print('REAL FOLLOW ENABLED. Ctrl+C / dashboard Stop to stop. Keep remote stop available.', flush=True)
+        last_log = 0
         while True:
             started = time.monotonic()
             data = exchange(args.dashboard, '/api/target')
             if not check():
                 raise RuntimeError('SDK connection lost')
-            command = controller.step(data, time.monotonic() - started)
+            elapsed = time.monotonic() - started
+            command = controller.step(data, elapsed)
+            if time.monotonic() - last_log >= 1:
+                print(f"{decision_reason(data, elapsed)} | frame_age={data.get('frame_age_seconds')}s "
+                      f"| mode={controller.mode} | move{command} accepted by SDK", flush=True)
+                last_log = time.monotonic()
             exchange(args.dashboard, '/api/motion', dict(action='heartbeat',
                      state='ACTIVE' if any(command) else 'READY', command=list(command)))
             time.sleep(max(0, .1 - (time.monotonic() - started)))
