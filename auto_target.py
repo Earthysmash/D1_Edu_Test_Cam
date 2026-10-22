@@ -1,10 +1,10 @@
-"""Automatic person-selection demo. Suggestions only; no robot commands."""
+"""Automatic person selection; robot_follow.py consumes the output for motion."""
 import threading
 import time
 
 
 class AutoTarget:
-    def __init__(self, max_age=2):
+    def __init__(self, max_age=1):
         self.mutex = threading.RLock()
         self.max_age = max_age
         self.at = None
@@ -12,6 +12,11 @@ class AutoTarget:
         self.people = []
         self.target = None
         self.suggestion = 'STOP'
+
+    def invalidate(self):
+        with self.mutex:
+            self.at, self.target, self.people = None, None, []
+            self.suggestion = 'STOP'
 
     def observe(self, connection, people, frame_shape, now=None):
         now = time.monotonic() if now is None else now
@@ -46,12 +51,19 @@ class AutoTarget:
                         people=[] if stale else [dict(p) for p in self.people],
                         target=dict(target) if target else None,
                         suggestion='STOP' if stale else self.suggestion,
+                        frame_age_seconds=None if self.at is None else max(0, now-self.at),
                         motion_enabled=False, mode='automatic_demo')
 
 
-def register_target(app, target):
+def register_target(app, target, motion=None):
     from flask import jsonify
 
     @app.get('/api/target')
     def get_target():
-        return jsonify(target.snapshot())
+        data = target.snapshot()
+        if motion is not None:
+            state = motion.snapshot()
+            data.update(motion_requested=state['requested'],
+                        motion_enabled=state['online'] and state['requested'],
+                        motion=state, mode='automatic_follow')
+        return jsonify(data)

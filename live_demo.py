@@ -11,6 +11,7 @@ def main():
     parser.add_argument('--imgsz', type=int, default=640)
     parser.add_argument('--conf', type=float, default=0.25)
     parser.add_argument('--port', type=int, default=8080)
+    parser.add_argument('--follow', action='store_true', help='Person-only fast path for robot_follow.py')
     args = parser.parse_args()
     root = Path(__file__).resolve().parent
     command = [
@@ -20,7 +21,10 @@ def main():
         '--port', str(args.port), '--classes', 'person', 'chair', 'dining table',
     ]
     event_model = root / 'models' / 'best.pt'
-    if event_model.is_file():
+    if args.follow:
+        command = command[:command.index('--classes')] + ['--classes', 'person']
+        print('Person-follow mode: one model only; start robot_follow.py on D1 for motion.', flush=True)
+    elif event_model.is_file():
         command.extend(['--event-model', str(event_model), '--weapon-labels', 'gun,knife'])
         print('Loading general detection + models/best.pt (gun, knife)', flush=True)
     else:

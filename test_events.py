@@ -49,7 +49,7 @@ class EventTests(unittest.TestCase):
         import detect_web
         def check(app, **kwargs):
             c = app.test_client()
-            self.assertIn(b'Auto-follow demo', c.get('/').data)
+            self.assertIn(b'D1 auto follow', c.get('/').data)
             self.assertEqual(c.get('/api/target').json['status'], 'WAITING FOR CAMERA')
             self.assertTrue(c.get('/api/target').json['stale'])
             self.assertTrue(c.get('/health').json['stale'])

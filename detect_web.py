@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from events import Events, observations, register
 from auto_target import AutoTarget, register_target
+from motion_status import MotionStatus, register_motion
 
 
 class Counts:
@@ -123,6 +124,7 @@ def main():
     events = Events(args.event_dir, args.event_frames, args.event_seconds)
     frames, output = Latest(), Latest()
     target = AutoTarget()
+    motion = MotionStatus()
     stop = threading.Event()
     status_lock = threading.Lock()
     state = {"camera": "connecting", "detector": "starting", "capabilities": capabilities,
@@ -147,15 +149,17 @@ def main():
                     cap = cv2.VideoCapture(source)
                 if not cap.isOpened():
                     raise RuntimeError("Cannot open camera; check address/service/access")
-                update(camera="connected")
                 connection += 1
+                update(camera="connected", camera_connection=connection)
                 while not stop.is_set():
                     ok, frame = cap.read()
                     if not ok:
                         raise RuntimeError("Camera read failed; reconnecting")
                     frames.put((connection, frame))
             except Exception as exc:
-                update(camera=str(exc))
+                with status_lock:
+                    state.update(camera=str(exc))
+                    target.invalidate()
             finally:
                 if cap is not None:
                     cap.release()
@@ -201,13 +205,18 @@ def main():
                             if str(result.names[int(cls)]).lower() == 'person':
                                 people.append(dict(track_id=int(tid) if tid is not None else None,
                                     box=[int(v) for v in box], confidence=round(confidence, 3)))
-                target.observe(connection, people, frame.shape)
+                # Use capture time: slow inference must not make an old frame fresh.
+                with status_lock:
+                    if state['camera'] == 'connected' and state.get('camera_connection') == connection:
+                        target.observe(connection, people, frame.shape, now=captured)
+                    else:
+                        target.invalidate()
                 selection = target.snapshot()
                 if selection['target'] is not None:
                     selected = selection['target']
                     x1, y1, x2, y2 = selected['box']
                     cv2.rectangle(annotated, (x1, y1), (x2, y2), (255, 220, 0), 4)
-                    cv2.putText(annotated, 'DEMO: ' + selection['suggestion'],
+                    cv2.putText(annotated, 'TARGET: ' + selection['suggestion'],
                                 (x1, max(20, y1-12)), cv2.FONT_HERSHEY_SIMPLEX,
                                 .7, (255, 220, 0), 2)
                 candidates = []
@@ -243,12 +252,14 @@ def main():
                 update(detector="preview" if model is None else "running", objects=count,
                        processing_ms=round(elapsed*1000, 1), **totals)
         except Exception as exc:
+            target.invalidate()
             update(detector="error: " + str(exc))
             print(f"Detector stopped: {exc}", flush=True)
 
     app = Flask(__name__)
     register(app, events)
-    register_target(app, target)
+    register_target(app, target, motion)
+    register_motion(app, motion)
 
     @app.get("/")
     def index():
@@ -287,6 +298,8 @@ def main():
     try:
         app.run(host="127.0.0.1", port=args.port, threaded=True, use_reloader=False)
     finally:
+        motion.control('stop')
+        target.invalidate()
         stop.set()
         with status_lock:
             summary = dict(state)

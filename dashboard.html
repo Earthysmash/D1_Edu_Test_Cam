@@ -1,16 +1,17 @@
 <!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>D1 · Auto-follow demo</title><style>
+<title>D1 · D1 auto follow</title><style>
 :root{color-scheme:dark}body{margin:0;background:#0a101b;color:#e7eef9;font:15px system-ui}main{max-width:1400px;margin:auto;padding:28px}header{display:flex;justify-content:space-between;align-items:center}h1{font-size:28px;margin:8px 0}small,.muted{color:#9caec7}.badge{border:1px solid #33425e;border-radius:24px;padding:8px 14px;color:#80e6c2}.cards{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:24px 0}.card,.panel{background:#131e30;border:1px solid #26334a;border-radius:16px;padding:18px}.num{font-size:36px;display:block;margin-top:8px}.red{color:#ff7385}.orange{color:#ffbe71}.grid{display:grid;grid-template-columns:1.6fr 1fr;gap:18px}#live{width:100%;min-height:180px;background:#080d15;border-radius:10px}.event{padding:14px;margin-bottom:12px;background:#0c1524;border-left:4px solid #ff7385;border-radius:8px}.event.orange{border-color:#ffbe71;color:inherit}.event img{width:100%;max-height:180px;object-fit:contain;margin:8px 0}button{border:1px solid #38506c;background:#20364d;color:white;padding:8px 12px;border-radius:8px;margin:4px;cursor:pointer}.events{max-height:700px;overflow:auto}#status{margin:14px 0;color:#a5bddb}#capabilities{line-height:1.8;white-space:pre-line}pre{white-space:pre-wrap} @media(max-width:900px){.grid{grid-template-columns:1fr}.cards{grid-template-columns:repeat(2,1fr)}}
 </style><style>
 .target-panel{margin:20px 0;border-color:#387e91}.target-top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.target-status{font-size:24px;color:#7be3ee}.target-status.lost{color:#ffbe71}.people{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}.person{padding:14px;background:#0c1524;border:1px solid #33425e;border-radius:10px;min-width:160px}.person.selected{border-color:#7be3ee}button:disabled{opacity:.45;cursor:default}button:focus-visible{outline:2px solid #7be3ee}.target-meta{color:#b9cbe0;line-height:1.8}#target-error{color:#ffbe71}header .badge{white-space:nowrap}@media(max-width:600px){main{padding:16px}header{align-items:flex-start;gap:10px;flex-wrap:wrap}}
-</style><main><header><div><small>D1 EDU / PERCEPTION CONSOLE</small><h1>Auto-follow demo</h1></div><span class="badge">Automatic demo · Motion OFF</span></header>
+</style><main><header><div><small>D1 EDU / PERCEPTION CONSOLE</small><h1>D1 auto follow</h1></div><span class="badge" id="motion-badge">Robot bridge: OFFLINE</span></header>
 <section class="panel target-panel" aria-label="Automatic person selection">
-<div class="target-top"><div><small>AUTOMATIC PERSON SELECTION</small><h2 id="target-status" class="target-status" aria-live="polite">Connecting…</h2></div><strong id="suggestion">DEMO: STOP</strong></div>
+<div class="target-top"><div><small>AUTOMATIC PERSON SELECTION</small><h2 id="target-status" class="target-status" aria-live="polite">Connecting…</h2></div><strong id="suggestion">TARGET: STOP</strong></div>
 <p class="muted">เลือกคนใกล้กลางภาพอัตโนมัติทุกเฟรม ไม่ต้องล็อก เปลี่ยนคนได้ทันทีเมื่อมีคนอื่นอยู่ใกล้กลางภาพกว่า</p>
 <div id="target-meta" class="target-meta">Waiting for detection data…</div>
 <div id="people" class="people">No live detections yet.</div>
-<p class="muted">DEMO ONLY: ทิศทางบนจอเป็นการจำลอง ยังไม่ส่งคำสั่งให้หุ่นเดิน · ไม่พบคนหรือภาพขาด = STOP</p>
-<small>FORWARD / TURN / HOLD use image position and box size only. No distance measurement, identity lock, obstacle avoidance or robot control.</small>
+<div><button id="start-follow" disabled>เริ่มเดินตาม / Resume</button><button id="stop-follow">หยุดเดิน / STOP</button></div>
+<p id="motion-detail" aria-live="polite">ต้องรัน robot_follow.py บน D1 เพื่อส่งคำสั่งเดินจริง</p><p id="motion-error" role="alert"></p>
+<small>Motion uses image position and box size, not measured distance. No obstacle avoidance or identity lock. Keep the physical remote stop available. SDK reports are command acknowledgments, not proof of actual movement.</small>
 </section>
 <p class="muted">แจ้งเหตุการณ์จากภาพ ไม่ประเมินตัวตนหรือความเป็นอาชญากรของบุคคล</p>
 <div class="cards"><div class="card">Objects now<b class="num" id="now">—</b></div><div class="card">Total object tracks<b class="num" id="tracks">—</b></div><div class="card">Red events<b class="num red" id="red">0</b></div><div class="card">Orange events<b class="num orange" id="orange">0</b></div><div class="card">Awaiting review<b class="num" id="pending">0</b></div></div>
@@ -18,16 +19,26 @@
 <section class="panel"><h2>Event timeline <small id="total"></small></h2><p class="muted">แดง: วัตถุคล้ายอาวุธ • ส้ม: ใบหน้าถูกบังในโซนนโยบาย</p><p id="error"></p><div class="events" id="events">ยังไม่มีเหตุการณ์</div></section></div></main>
 <script>
 const el=id=>document.getElementById(id);let previous='';
+async function motionControl(action){
+ try{el('motion-error').textContent='';const r=await fetch('/api/motion',{method:'POST',headers:{'Content-Type':'application/json','X-D1-Motion':'1'},body:JSON.stringify({action})});const d=await r.json();if(!r.ok)throw Error(d.error);if(action==='stop')el('motion-detail').textContent='Stop requested — waiting for robot bridge acknowledgment';}catch(e){el('motion-error').textContent=e.message+' — ถ้าหุ่นยังเดิน ให้หยุดด้วยรีโมต';}
+}
+el('start-follow').onclick=()=>motionControl('start');
+el('stop-follow').onclick=()=>motionControl('stop');
 function renderTarget(s){
+ const m=s.motion||{online:false,state:'OFFLINE',requested:false};
+ el('motion-badge').textContent='Robot bridge: '+m.state+(m.requested?' · FOLLOW ENABLED':' · FOLLOW DISABLED');
+ el('start-follow').disabled=!m.online||!['READY','ACTIVE'].includes(m.state)||m.requested;
+ el('motion-detail').textContent=m.online?`SDK report: ${m.state} · Last reported vx / vy / yaw: ${(m.command||[]).join(' / ')} · ${m.error||''}`:'Bridge offline — run robot_follow.py on D1. If motion continues, use the physical remote stop.';
+
  el('target-status').textContent=s.status;
  el('target-status').className='target-status'+(s.stale?' lost':'');
- el('suggestion').textContent='DEMO: '+s.suggestion;
+ el('suggestion').textContent='TARGET: '+s.suggestion;
  const t=s.target;
  el('target-meta').textContent=t?`Auto-selected person · ${Math.round(t.confidence*100)}% confidence · Box: ${t.box.join(', ')} px`:'รอคนเข้าภาพ — ไม่ต้องกดเลือก';
  if(s.stale)el('target-meta').textContent='รอภาพใหม่จากกล้อง';
- el('people').textContent=`People visible: ${s.people.length} · Selection: nearest image center · Motion: OFF`;
+ el('people').textContent=`People visible: ${s.people.length} · Selection: nearest image center`;
 }
-async function pollTarget(){try{const r=await fetch('/api/target',{cache:'no-store'});if(!r.ok)throw Error('Target service unavailable');renderTarget(await r.json())}catch(err){el('target-status').textContent='DISCONNECTED';el('target-status').className='target-status lost';el('suggestion').textContent='DEMO: STOP';el('target-meta').textContent='Waiting for the server…';el('people').replaceChildren()}finally{setTimeout(pollTarget,500)}}
+async function pollTarget(){try{const r=await fetch('/api/target',{cache:'no-store'});if(!r.ok)throw Error('Target service unavailable');renderTarget(await r.json())}catch(err){el('target-status').textContent='DISCONNECTED';el('target-status').className='target-status lost';el('suggestion').textContent='TARGET: STOP';el('motion-badge').textContent='Robot bridge: UNKNOWN';el('start-follow').disabled=true;el('motion-detail').textContent='Dashboard disconnected — use physical remote stop if needed';el('target-meta').textContent='Waiting for the server…';el('people').replaceChildren()}finally{setTimeout(pollTarget,500)}}
 pollTarget();
 async function review(id,verdict){try{let r=await fetch('/api/events/'+id+'/review',{method:'POST',headers:{'Content-Type':'application/json','X-D1-Review':'1'},body:JSON.stringify({verdict})});if(!r.ok)throw Error('บันทึกไม่สำเร็จ');previous='';await poll()}catch(e){el('error').textContent=e.message}}
 function render(data){const signature=JSON.stringify(data.events);if(signature===previous)return;previous=signature;el('events').replaceChildren();if(!data.events.length){el('events').textContent='ยังไม่มีเหตุการณ์';return}for(const e of data.events){const card=document.createElement('article');card.className='event '+e.tier;const title=document.createElement('strong');title.textContent=e.tier.toUpperCase()+' · '+e.label+' · Track '+e.track_id;card.append(title);const desc=document.createElement('p');desc.textContent=e.reason;card.append(desc);const meta=document.createElement('small');meta.textContent=new Date(e.time).toLocaleString()+' | score '+e.confidence+' | '+e.review;card.append(meta);const img=document.createElement('img');img.src='/evidence/'+e.id+'.jpg';img.alt='Evidence unavailable';card.append(img);for(const [value,text] of [['confirmed','ยืนยันเหตุการณ์'],['false_alarm','แจ้งเตือนผิด']]){const b=document.createElement('button');b.textContent=text;b.onclick=()=>review(e.id,value);card.append(b)}el('events').append(card)}}
